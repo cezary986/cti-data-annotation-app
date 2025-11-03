@@ -279,8 +279,6 @@ def main():
 
             The application automatically **saves your progress** after each click and moves on to the next task. You can close it at any time and come back to the same place later.
             You can also see a progress bar at the top to keep track of the whole annotation process.
-
-            Once you have finished annotating all reports you can click the "Download results" button at the bottom of the page to download the results as a JSON file.
             """
         )
 
