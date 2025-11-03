@@ -1,0 +1,5 @@
+streamlit==1.50.0
+pandas==2.3.2
+supabase==2.23.0
+supabase-auth==2.23.0
+supabase-functions==2.23.0
