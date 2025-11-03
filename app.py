@@ -6,8 +6,8 @@ import json
 from supabase import create_client, Client
 
 # --- Configuration and Constants ---
-REPORTS_FILE = "./data/reports.json"
-USERS_FILE = "./data/users.csv"
+REPORTS_TABLE = "reports"
+USERS_TABLE = "users"
 STATE_TABLE = "state"
 ANNOTATIONS_TABLE = "annotations"
 
@@ -83,12 +83,23 @@ def save_state(state: State):
         raise e
 
 
-def load_data():
-    """Loads reports and users from their respective files."""
-    with open(REPORTS_FILE, "r", encoding="utf-8") as f:
-        reports = json.load(f)
-    users = pd.read_csv(USERS_FILE)
-    return reports, users
+def load_data() -> tuple[list[dict], list[dict]]:
+    try:
+        # Query the database for the single state row
+        response = supabase.table(USERS_TABLE).select("*").execute()
+        if response.data and len(response.data) > 0:
+            users = response.data
+        else:
+            raise RuntimeError("Annotation data row not found")
+        response = supabase.table(REPORTS_TABLE).select("*").execute()
+        if response.data and len(response.data) > 0:
+            reports = response.data
+        else:
+            raise RuntimeError("Annotation data row not found")
+        return reports, users
+    except Exception as e:
+        st.error(f"Error loading data")
+        raise e
 
 
 def load_annotations(users: pd.DataFrame) -> dict[int, Annotation]:
@@ -245,7 +256,8 @@ def main():
 
     # Get the current report and user
     current_report = reports[state.report_id]
-    current_user = users.iloc[state.user_id]
+    print(current_report)
+    current_user = users[state.user_id]
 
     # Check if the state file exists and if 'welcome_shown' is not in the session state
     if state.show_tutorial:
@@ -313,6 +325,7 @@ def main():
 
     # Left column: Report details
     with col1:
+        print(current_report)
         st.subheader(f"Report: {current_report['title']}")
         st.caption(
             f"ID: {current_report['id']} | Creation Date: {current_report['creation_date']}"
