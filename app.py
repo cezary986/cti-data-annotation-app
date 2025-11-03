@@ -114,7 +114,7 @@ def load_annotations(users: list[dict]) -> dict[int, Annotation]:
             # Convert values to int for session_state consistency
             annotations_dict: dict[int, Annotation] = response.data[0].get("data", {})
             if not annotations_dict:
-                return {user["user_id"]: {"relevant_reports": []} for user in user}
+                return {user["user_id"]: {"relevant_reports": []} for user in users}
             else:
                 return annotations_dict
         else:
