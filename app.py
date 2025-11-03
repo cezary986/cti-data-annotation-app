@@ -29,6 +29,7 @@ ANNOTATIONS_ROW_ID = st.secrets[
     "ANNOTATIONS_ROW_ID"
 ]  # The fixed primary key of the state row
 DEFAULT_STATE = State(report_id=0, user_id=0, show_tutorial=True)
+USER_EMAIL = st.secrets["USER_EMAIL"]
 
 
 # Initialize Supabase client
@@ -61,7 +62,6 @@ def load_state() -> State:
                 show_tutorial=state_data.get("show_tutorial", True),
             )
         else:
-            print(response)
             raise RuntimeError("State row not found")
 
     except Exception as e:
@@ -72,7 +72,6 @@ def load_state() -> State:
 def save_state(state: State):
     """Saves the current application state to the Supabase database and updates session_state."""
     new_state: dict = asdict(state)
-    print(f"Saving state: {new_state}")
     try:
         # Update the single state row based on its fixed ID
         supabase.table(STATE_TABLE).update(new_state).eq("id", STATE_ROW_ID).execute()
@@ -141,6 +140,67 @@ def save_annotation(annotations: dict[int, Annotation], user_id: int, report_id:
         raise e
 
 
+def sign_in(email, password):
+    """Attempts to sign in a user with email and password via Supabase."""
+    try:
+        # Use the sign_in_with_password method
+        response = supabase.auth.sign_in_with_password(
+            {"email": email, "password": password}
+        )
+
+        # Check if the session is valid
+        if response.user and response.session:
+            st.session_state.logged_in = True
+            # Store essential user data (e.g., email, id)
+            st.session_state.user = response.user
+            st.success("Login successful!")
+            st.rerun()
+        else:
+            st.error("Login failed: Invalid credentials or response structure.")
+
+    except Exception as e:
+        # Supabase client may raise exceptions for specific errors (e.g., rate limiting)
+        error_message = (
+            str(e).splitlines()[0] if str(e) else "An unknown error occurred."
+        )
+        st.error(f"Login failed: {error_message}")
+
+
+def show_auth_ui():
+    """Displays the login and sign up forms."""
+    st.title("CTI Annotation Tool 🔒")
+    st.subheader("Please sign in to continue")
+
+    with st.form("login_form"):
+        password = st.text_input(
+            "Password (Login)", type="password", key="login_password"
+        )
+        submitted = st.form_submit_button(
+            "Sign In", type="primary", use_container_width=True
+        )
+
+        if submitted:
+            # Basic validation
+            if password:
+                sign_in(USER_EMAIL, password)
+            else:
+                st.warning("Please enter password.")
+
+
+def sign_out():
+    """Signs out the current user and clears session state."""
+    try:
+        supabase.auth.sign_out()
+        st.session_state.logged_in = False
+        st.session_state.user = None
+        st.session_state.report_idx = 0  # Reset state on logout if desired
+        st.session_state.user_idx = 0  # Reset state on logout if desired
+        st.toast("Successfully logged out.", icon="👋")
+        st.rerun()
+    except Exception as e:
+        st.error(f"Logout failed: {e}")
+
+
 # --- Main application function ---
 
 
@@ -161,6 +221,17 @@ def main():
     """,
         unsafe_allow_html=True,
     )
+
+    if "logged_in" not in st.session_state:
+        st.session_state.logged_in = False
+    if "user" not in st.session_state:
+        st.session_state.user = None  # Stores user object from Supabase
+
+    # --- Check Authentication and Control Access ---
+    if not st.session_state.logged_in:
+        # If not logged in, show the login UI and STOP the app execution.
+        show_auth_ui()
+        return  # STOP EXECUTION HERE!
 
     # Load data
     reports, users = load_data()
@@ -222,7 +293,9 @@ def main():
 
     # Check if annotation is complete
     if state.report_id >= total_reports:
-        st.success("🎉 Congratulations! All reports have been annotated. Please write us a message to let us now you've finished.")
+        st.success(
+            "🎉 Congratulations! All reports have been annotated. Please write us a message to let us now you've finished."
+        )
         st.balloons()
         return
 
@@ -280,7 +353,9 @@ def main():
     is_relevant = btn_col1.button(
         "✅ Relevant", use_container_width=True, type="primary"
     )
-    is_not_relevant = btn_col2.button("❌ Not Relevant", use_container_width=True, width=100)
+    is_not_relevant = btn_col2.button(
+        "❌ Not Relevant", use_container_width=True, width=100
+    )
 
     # --- Logic after button click ---
 
