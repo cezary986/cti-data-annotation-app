@@ -1,8 +1,6 @@
 import streamlit as st
-import pandas as pd
 from dataclasses import dataclass, asdict
 from typing import TypedDict
-import json
 from supabase import create_client, Client
 
 # --- Configuration and Constants ---
@@ -102,7 +100,7 @@ def load_data() -> tuple[list[dict], list[dict]]:
         raise e
 
 
-def load_annotations(users: pd.DataFrame) -> dict[int, Annotation]:
+def load_annotations(users: list[dict]) -> dict[int, Annotation]:
     try:
         # Query the database for the single state row
         response = (
@@ -116,10 +114,7 @@ def load_annotations(users: pd.DataFrame) -> dict[int, Annotation]:
             # Convert values to int for session_state consistency
             annotations_dict: dict[int, Annotation] = response.data[0].get("data", {})
             if not annotations_dict:
-                return {
-                    row["user_id"]: {"relevant_reports": []}
-                    for _, row in users.iterrows()
-                }
+                return {user["user_id"]: {"relevant_reports": []} for user in user}
             else:
                 return annotations_dict
         else:
@@ -387,24 +382,6 @@ def main():
         # Save the new state and rerun the app
         save_state(state)
         st.rerun()
-
-    # results = {
-    #     "state": asdict(state),
-    #     "annotations": annotations,
-    # }
-    # results = json.dumps(results, indent=2)
-    # if st.download_button(
-    #     label="Download results",
-    #     data=results,
-    #     type="secondary",
-    #     file_name="annotations.json",
-    #     mime="application/json",
-    #     icon=":material/download:",
-    # ):
-    #     st.toast(
-    #         "Thank you! Please send this file to cezary.maszczyk@ai.lukasiewicz.gov.pl.",
-    #         icon="✅",
-    #     )
 
 
 if __name__ == "__main__":
