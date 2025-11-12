@@ -2,6 +2,7 @@ import streamlit as st
 from dataclasses import dataclass, asdict
 from typing import TypedDict
 from supabase import create_client, Client
+import streamlit.components.v1 as components
 
 # --- Configuration and Constants ---
 REPORTS_TABLE = "reports"
@@ -18,16 +19,11 @@ class State:
 
 
 class Annotation(TypedDict):
-    user_id: int
     relevant_reports: list[int]
+    extras: dict[str, dict]
 
 
-STATE_ROW_ID = st.secrets["STATE_ROW_ID"]  # The fixed primary key of the state row
-ANNOTATIONS_ROW_ID = st.secrets[
-    "ANNOTATIONS_ROW_ID"
-]  # The fixed primary key of the state row
 DEFAULT_STATE = State(report_id=0, user_id=0, show_tutorial=True)
-USER_EMAIL = st.secrets["USER_EMAIL"]
 
 
 # Initialize Supabase client
@@ -43,11 +39,12 @@ supabase: Client = init_supabase_client()
 
 
 def load_state() -> State:
+    user_uuid: str = st.session_state.user.id
     """Loads the application state (report and user index) from the Supabase database."""
     try:
         # Query the database for the single state row
         response = (
-            supabase.table(STATE_TABLE).select("*").eq("id", STATE_ROW_ID).execute()
+            supabase.table(STATE_TABLE).select("*").eq("user_uuid", user_uuid).execute()
         )
 
         # Check if data was returned
@@ -60,19 +57,37 @@ def load_state() -> State:
                 show_tutorial=state_data.get("show_tutorial", True),
             )
         else:
-            raise RuntimeError("State row not found")
-
+            # state row not found
+            return create_state_row()
     except Exception as e:
         st.error(f"Error loading state from Supabase: {e}")
         raise e
 
 
+def create_state_row():
+    user_uuid: str = st.session_state.user.id
+    new_state: dict = asdict(DEFAULT_STATE)
+    new_state["user_uuid"] = user_uuid
+    try:
+        # Update the single state row based on its fixed ID
+        supabase.table(STATE_TABLE).insert(new_state).execute()
+        return DEFAULT_STATE
+    except Exception as e:
+        # It's helpful to log or display a temporary error if saving fails
+        print(f"Error saving state to Supabase: {e}")
+        st.toast("Warning: Could not save progress to database!", icon="⚠️")
+        raise e
+
+
 def save_state(state: State):
     """Saves the current application state to the Supabase database and updates session_state."""
+    user_uuid: str = st.session_state.user.id
     new_state: dict = asdict(state)
     try:
         # Update the single state row based on its fixed ID
-        supabase.table(STATE_TABLE).update(new_state).eq("id", STATE_ROW_ID).execute()
+        supabase.table(STATE_TABLE).update(new_state).eq(
+            "user_uuid", user_uuid
+        ).execute()
 
     except Exception as e:
         # It's helpful to log or display a temporary error if saving fails
@@ -88,55 +103,85 @@ def load_data() -> tuple[list[dict], list[dict]]:
         if response.data and len(response.data) > 0:
             users = response.data
         else:
-            raise RuntimeError("Annotation data row not found")
+            raise RuntimeError("Users data row not found")
         response = supabase.table(REPORTS_TABLE).select("*").execute()
         if response.data and len(response.data) > 0:
             reports = response.data
         else:
-            raise RuntimeError("Annotation data row not found")
+            raise RuntimeError("Reports data row not found")
         return reports, users
     except Exception as e:
         st.error(f"Error loading data")
         raise e
 
 
-def load_annotations(users: list[dict]) -> dict[int, Annotation]:
+def load_annotations(users: list[dict]) -> tuple[dict[str, Annotation], dict[str, int]]:
+    user_uuid: str = st.session_state.user.id
     try:
         # Query the database for the single state row
         response = (
             supabase.table(ANNOTATIONS_TABLE)
             .select("*")
-            .eq("id", ANNOTATIONS_ROW_ID)
+            .eq("user_uuid", user_uuid)
             .execute()
         )
         # Check if data was returned
         if response.data and len(response.data) > 0:
             # Convert values to int for session_state consistency
             annotations_dict: dict[int, Annotation] = response.data[0].get("data", {})
-            if not annotations_dict:
-                return {user["user_id"]: {"relevant_reports": []} for user in users}
-            else:
+            if annotations_dict:
                 return annotations_dict
         else:
-            raise RuntimeError("Annotation data row not found")
-
+            # Annotation data row not found
+            create_annotation_row(users)
+        return {
+            user["user_id"]: {"relevant_reports": [], "extras": {}} for user in users
+        }
     except Exception as e:
         st.error(f"Error loading annoations data from Supabase: {e}")
         raise e
 
 
-def save_annotation(annotations: dict[int, Annotation], user_id: int, report_id: int):
+def create_annotation_row(users: list[dict]):
+    user_uuid: str = st.session_state.user.id
+    new_data_row = {
+        "data": {
+            user["user_id"]: {"relevant_reports": [], "extras": {}} for user in users
+        },
+        "user_uuid": user_uuid,
+        "notes": f"{st.session_state.user.email} results.",
+    }
+    try:
+        # Update the single state row based on its fixed ID
+        supabase.table(ANNOTATIONS_TABLE).insert(new_data_row).execute()
+        return DEFAULT_STATE
+    except Exception as e:
+        # It's helpful to log or display a temporary error if saving fails
+        print(f"Error saving annotations new row to Supabase: {e}")
+        st.toast("Warning: Could not save progress to database!", icon="⚠️")
+        raise e
+
+
+def save_annotation(
+    annotations: dict[int, Annotation],
+    user_id: int,
+    report_id: int,
+    extras: dict,
+    is_relevant: bool,
+):
     """Adds a relevant report ID to a given user and saves the file."""
+    user_uuid: str = st.session_state.user.id
     # Ensure we don't add duplicates
-    if report_id not in annotations[user_id]["relevant_reports"]:
+    if is_relevant and report_id not in annotations[user_id]["relevant_reports"]:
         annotations[user_id]["relevant_reports"].append(report_id)
         annotations[user_id]["relevant_reports"] = list(
             set(annotations[user_id]["relevant_reports"])
         )
+    annotations[user_id]["extras"][report_id] = extras
     try:
         # Update the single state row based on its fixed ID
         supabase.table(ANNOTATIONS_TABLE).update({"data": annotations}).eq(
-            "id", ANNOTATIONS_ROW_ID
+            "user_uuid", user_uuid
         ).execute()
 
     except Exception as e:
@@ -147,6 +192,7 @@ def save_annotation(annotations: dict[int, Annotation], user_id: int, report_id:
 
 
 def sign_in(email, password):
+    print(email, password)
     """Attempts to sign in a user with email and password via Supabase."""
     try:
         # Use the sign_in_with_password method
@@ -178,9 +224,8 @@ def show_auth_ui():
     st.subheader("Please sign in to continue")
 
     with st.form("login_form"):
-        password = st.text_input(
-            "Password (Login)", type="password", key="login_password"
-        )
+        email = st.text_input("Email", type="default", key="email")
+        password = st.text_input("Password", type="password", key="password")
         submitted = st.form_submit_button(
             "Sign In", type="primary", use_container_width=True
         )
@@ -188,7 +233,7 @@ def show_auth_ui():
         if submitted:
             # Basic validation
             if password:
-                sign_in(USER_EMAIL, password)
+                sign_in(email, password)
             else:
                 st.warning("Please enter password.")
 
@@ -205,6 +250,18 @@ def sign_out():
         st.rerun()
     except Exception as e:
         st.error(f"Logout failed: {e}")
+
+
+def scroll_to_top():
+    js = """
+    <script>
+        var body = window.parent.document.querySelector(".main");
+        console.log(body);
+        body.scrollTop = 0;
+    </script>
+    """
+
+    st.components.v1.html(js)
 
 
 # --- Main application function ---
@@ -251,7 +308,6 @@ def main():
 
     # Get the current report and user
     current_report = reports[state.report_id]
-    print(current_report)
     current_user = users[state.user_id]
 
     # Check if the state file exists and if 'welcome_shown' is not in the session state
@@ -287,7 +343,6 @@ def main():
             "Let's start annotating!", use_container_width=True, type="primary"
         ):
             state.show_tutorial = False
-            state.report_id = 10
             save_state(state)
 
             # Rerun the app to show the main application
@@ -308,7 +363,7 @@ def main():
 
     # Display progress
     st.info(
-        f"Progress: Report {state.report_id + 1} of {total_reports} | User {state.user_id + 1} of {total_users}"
+        f"Progress: Report {state.report_id + 1} of {total_reports} | User {state.user_id + 1} of {total_users} &nbsp;|&nbsp; Signed in as {st.session_state.user.email}"
     )
     st.progress(
         (state.report_id * total_users + state.user_id) / (total_reports * total_users)
@@ -318,7 +373,6 @@ def main():
 
     # Left column: Report details
     with col1:
-        print(current_report)
         st.subheader(f"Report: {current_report['title']}")
         st.caption(
             f"ID: {current_report['id']} | Creation Date: {current_report['creation_date']}"
@@ -334,27 +388,44 @@ def main():
             unsafe_allow_html=True,
         )
 
+    data_fields_relevancies: dict[str, bool] = {}
+
     # Right column: User data
     with col2:
         st.subheader(f"User: {current_user['name']}")
         st.caption(f"ID: {current_user['user_id']}")
+        st.markdown("---")  # Linia oddzielająca dla lepszej czytelności
+
+        col_check, col_text = st.columns(
+            [1, 10],
+            gap=None,
+            vertical_alignment="center",
+        )
+
+        with col_check:
+            st.write("Is relevant?")
 
         for key, value in current_user.items():
             if key not in ["user_id", "name"]:
                 item_header = f"**{key.replace('_', ' ').capitalize()}:** "
-                # Split values by semicolon and display as a list
-                items = str(value).split(";")
-                if len(items) > 1:
-                    st.markdown(
-                        item_header + ", ".join([f"{item.strip()}" for item in items])
+
+                col_check, col_text = st.columns(
+                    [1, 10], gap=None, vertical_alignment="center", border=True
+                )
+
+                with col_check:
+                    data_fields_relevancies[key] = st.checkbox(
+                        " ",
+                        key=f'{current_user["user_id"]}_{current_report["id"]}_{key}',
                     )
-                else:
-                    st.write(item_header + value)
+
+                with col_text:
+                    st.markdown(item_header + str(value))
 
     st.markdown("---")  # Separator
 
     # Annotation buttons
-    btn_col1, btn_col2, _ = st.columns([1, 1, 2])  # The last column is a "filler"
+    _, btn_col1, btn_col2, _ = st.columns([2, 1, 1, 2])  # The last column is a "filler"
 
     is_relevant = btn_col1.button(
         "✅ Relevant", use_container_width=True, type="primary"
@@ -363,13 +434,33 @@ def main():
         "❌ Not Relevant", use_container_width=True, width=100
     )
 
+    # Add a text input for notes
+    additional_notes = st.text_area(
+        "Additional notes (optional)",
+        key=f'{current_user["user_id"]}_{current_report["id"]}_notes',
+        value="",
+        max_chars=1000,
+        height=200,
+    )
+
     # --- Logic after button click ---
 
     if is_relevant or is_not_relevant:
-        if is_relevant:
-            # Load, update, and save annotations
-            annotations = load_annotations(users)
-            save_annotation(annotations, current_user["user_id"], current_report["id"])
+        # Load, update, and save annotations
+        annotations = load_annotations(users)
+        save_annotation(
+            annotations,
+            current_user["user_id"],
+            current_report["id"],
+            extras={
+                "notes": additional_notes,
+                "relevant_fields": [
+                    key for key, value in data_fields_relevancies.items() if value
+                ],
+            },
+            is_relevant=is_relevant,
+        )
+        scroll_to_top()
 
         # Move to the next user or report
         state.user_id += 1
