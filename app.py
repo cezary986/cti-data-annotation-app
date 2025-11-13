@@ -192,7 +192,6 @@ def save_annotation(
 
 
 def sign_in(email, password):
-    print(email, password)
     """Attempts to sign in a user with email and password via Supabase."""
     try:
         # Use the sign_in_with_password method
