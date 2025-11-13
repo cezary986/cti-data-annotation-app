@@ -326,12 +326,15 @@ def main():
             1. **On the left side** you will find the full content of the report to analyze.
 
             2. **On the right side** you can see the detailed user profile for whom you are making the evaluation.
+                Next to each data field there is a checkbox that indicates whether this piece of information is relevant to the report content or not.
 
-            3. **At the bottom** use one of the two buttons:
+            3. **Below** use one of the two buttons:
 
                 * **✅ Relevant**: Click if you believe the report is important for this user.
 
                 * **❌ Irrelevant**: Click if the report is not important.
+
+            4. **At the bottom** there is a text field for optional additional comments. You can add any useful information here if you want.
 
             The application automatically **saves your progress** after each click and moves on to the next task. You can close it at any time and come back to the same place later.
             You can also see a progress bar at the top to keep track of the whole annotation process.
